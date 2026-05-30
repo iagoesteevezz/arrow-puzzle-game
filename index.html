@@ -893,18 +893,17 @@ async function submitAuth() {
 }
 
 async function logout() {
-  if (!supabaseClient) return;
-  console.log('[auth] Cerrando sesión…');
-  const { error } = await supabaseClient.auth.signOut();
-  if (error) { console.warn('[auth] Error en signOut:', error.message); return; }
-  // UI reset — localStorage se mantiene intacto para no perder progreso local
-  const authUser  = document.getElementById('auth-user');
-  const btnLogin  = document.getElementById('btn-login');
-  const btnLogout = document.getElementById('btn-logout');
-  authUser.style.display  = 'none';
-  btnLogin.style.display  = 'inline-block';
-  btnLogout.style.display = 'none';
-  console.log('[auth] Sesión cerrada. Progreso local conservado.');
+  try {
+    if (!supabaseClient) return;
+    console.log('[auth] Cerrando sesión…');
+    const { error } = await supabaseClient.auth.signOut();
+    if (error) throw error;
+    // localStorage se mantiene intacto — el progreso local del invitado no se borra
+    console.log('[auth] Sesión cerrada con éxito. Recargando…');
+    window.location.reload();
+  } catch (err) {
+    console.error('[auth] Error al cerrar sesión:', err.message);
+  }
 }
 
 // ─── Sync (merge local ↔ cloud) ───────────────────────────────────────────────
