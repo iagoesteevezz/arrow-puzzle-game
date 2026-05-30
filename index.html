@@ -797,8 +797,8 @@ function startLevel(n) {
 function restartLevel() { startLevel(levelNumber); }
 
 function nextLevel() {
-  saveProgress();          // persist before advancing
-  startLevel(levelNumber + 1);
+  startLevel(levelNumber + 1);  // sets levelNumber = n+1 first
+  saveProgress();               // now saves the NEW level, not the old one
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -913,75 +913,90 @@ async function syncProgress(user) {
   if (!supabaseClient || !user) return;
   console.log('[sync] ── Iniciando para:', user.email, '──────────────────');
 
-  // ── Paso 1: leer ambos mundos ─────────────────────────────────────────────
-  const localData  = loadProgress() || { maxLevel: 1, updatedAt: 0 };
-  // parseInt garantiza número, por si localStorage tuviera un string
-  const localLevel = parseInt(localData.maxLevel, 10) || 1;
-  console.log('[sync] Local  → maxLevel:', localLevel, '| updatedAt:', new Date(localData.updatedAt).toLocaleString());
+  // ── Paso 1: nivel local real ──────────────────────────────────────────────
+  // Combina localStorage con el levelNumber en memoria por si aún no se guardó
+  const stored     = loadProgress() || { maxLevel: 1, updatedAt: 0 };
+  const localLevel = Math.max(levelNumber, parseInt(stored.maxLevel, 10) || 1);
+  console.log('[sync] Local  → maxLevel:', localLevel,
+              '(memoria:', levelNumber, '| localStorage:', stored.maxLevel + ')');
 
-  const { data: cloud, error: readErr } = await supabaseClient
-    .from('arrow_game_progress')
-    .select('max_level, updated_at')
-    .eq('id', user.id)
-    .single();
+  // ── Paso 2: leer nube con maybeSingle (null si no hay fila, sin error) ─────
+  let cloud = null;
+  try {
+    console.log('[sync] Consultando Supabase…');
+    const { data, error } = await supabaseClient
+      .from('arrow_game_progress')
+      .select('max_level, updated_at')
+      .eq('id', user.id)
+      .maybeSingle();   // ← devuelve null en vez de error PGRST116 cuando no hay fila
 
-  if (readErr && readErr.code !== 'PGRST116') {
-    // Error real de red/permisos → no tocar nada
-    console.warn('[sync] ❌ Error al leer nube:', readErr.message, '(código:', readErr.code + ')');
+    if (error) throw error;   // error real (red, permisos, etc.)
+    cloud = data;
+  } catch (err) {
+    console.warn('[sync] ❌ Error al leer nube:', err?.message ?? err);
     return;
   }
-  console.log('[sync] Nube   →', cloud ? `maxLevel: ${cloud.max_level} | updatedAt: ${new Date(cloud.updated_at).toLocaleString()}` : '(sin fila — primer login)');
 
-  // ── Paso 2: primer login → INSERT subiendo el nivel local, sin pisar nada ──
+  console.log('[sync] Nube   →',
+    cloud ? `maxLevel: ${cloud.max_level} | updatedAt: ${new Date(cloud.updated_at).toLocaleString()}`
+           : 'Sin datos (usuario nuevo)');
+
+  // ── Paso 3: usuario nuevo → INSERT con el nivel local ─────────────────────
   if (!cloud) {
-    console.log('[sync] Resultado fusión: primer login. Subiendo local (', localLevel, ') a nube.');
-    const { error: insertErr } = await supabaseClient
-      .from('arrow_game_progress')
-      .insert({
-        id:         user.id,
-        max_level:  localLevel,
-        updated_at: new Date(localData.updatedAt || Date.now()).toISOString(),
-      });
-    if (insertErr) console.warn('[sync] ❌ Error en INSERT:', insertErr.message);
-    else           console.log('[sync] ✓ INSERT OK → nube ahora tiene nivel', localLevel);
+    console.log('[sync] Nuevo usuario. Insertando nivel local:', localLevel);
+    try {
+      const { error } = await supabaseClient
+        .from('arrow_game_progress')
+        .insert({
+          id:         user.id,
+          max_level:  localLevel,
+          updated_at: new Date(stored.updatedAt || Date.now()).toISOString(),
+        });
+      if (error) throw error;
+      console.log('[sync] ✓ INSERT OK → nube tiene nivel', localLevel);
+    } catch (err) {
+      console.warn('[sync] ❌ Error en INSERT:', err?.message ?? err);
+    }
     showSynced();
-    return;  // juego ya está en el nivel correcto (boot lo cargó desde localStorage)
+    return;   // juego ya está en el nivel correcto
   }
 
-  // ── Paso 3: ambos tienen datos → Math.max; la nube gana si es mayor ────────
+  // ── Paso 4: fusión Math.max ────────────────────────────────────────────────
   const cloudLevel = parseInt(cloud.max_level, 10) || 1;
-  const cloudTs    = new Date(cloud.updated_at).getTime();
   const finalLevel = Math.max(localLevel, cloudLevel);
   console.log(`[sync] Resultado fusión: Local=${localLevel} | Nube=${cloudLevel} | Final=${finalLevel}`);
 
-  // ── Paso 4a: la nube gana → actualizar local y saltar al nivel superior ────
   if (cloudLevel > localLevel) {
-    console.log('[sync] ✓ La NUBE gana. Actualizando localStorage y saltando a nivel', cloudLevel);
+    // La nube gana → actualizar localStorage y saltar al nivel superior
+    console.log('[sync] ✓ La NUBE gana → startLevel(' + cloudLevel + ')');
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
         maxLevel:  cloudLevel,
-        updatedAt: cloudTs,
+        updatedAt: new Date(cloud.updated_at).getTime(),
       }));
     } catch (_) {}
     startLevel(cloudLevel);
 
-  // ── Paso 4b: el local gana (o empatan) → subir la nube ────────────────────
   } else if (localLevel > cloudLevel) {
-    console.log('[sync] ✓ El LOCAL gana. Actualizando nube a nivel', localLevel);
-    const { error: updateErr } = await supabaseClient
-      .from('arrow_game_progress')
-      .update({
-        max_level:  localLevel,
-        updated_at: new Date(localData.updatedAt || Date.now()).toISOString(),
-      })
-      .eq('id', user.id);
-    if (updateErr) console.warn('[sync] ❌ Error en UPDATE:', updateErr.message);
-    else           console.log('[sync] ✓ UPDATE OK → nube ahora tiene nivel', localLevel);
-    // El juego ya está en el nivel correcto; no llamar startLevel()
+    // El local gana → subir la nube
+    console.log('[sync] ✓ El LOCAL gana → UPDATE nube a', localLevel);
+    try {
+      const { error } = await supabaseClient
+        .from('arrow_game_progress')
+        .update({
+          max_level:  localLevel,
+          updated_at: new Date(stored.updatedAt || Date.now()).toISOString(),
+        })
+        .eq('id', user.id);
+      if (error) throw error;
+      console.log('[sync] ✓ UPDATE OK → nube tiene nivel', localLevel);
+    } catch (err) {
+      console.warn('[sync] ❌ Error en UPDATE:', err?.message ?? err);
+    }
+    // No llamar startLevel() — el juego ya está en el nivel correcto
 
   } else {
-    // Empate exacto en nivel: no hace falta mover nada
-    console.log('[sync] ✓ Empate en nivel', finalLevel, '— nube y local ya están sincronizados.');
+    console.log('[sync] ✓ Empate en nivel', finalLevel, '— ya sincronizados, nada que hacer.');
   }
 
   showSynced();
