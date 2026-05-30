@@ -817,11 +817,14 @@ let currentTab = 'signin';
 
 function openAuthModal() {
   setTab('signin');
-  document.getElementById('auth-email').value    = '';
+  // Pre-fill email if we remembered it from a previous session
+  const savedEmail = localStorage.getItem('saved_email') || '';
+  document.getElementById('auth-email').value    = savedEmail;
   document.getElementById('auth-password').value = '';
   setAuthError('');
   document.getElementById('auth-overlay').classList.add('open');
-  document.getElementById('auth-email').focus();
+  // Focus password if email is already filled, otherwise focus email
+  document.getElementById(savedEmail ? 'auth-password' : 'auth-email').focus();
 }
 
 function closeAuthModal() {
@@ -882,86 +885,107 @@ async function submitAuth() {
   if (error) {
     setAuthError(error.message);
   } else {
-    // onAuthStateChange handles the rest (syncProgress + UI update)
+    // Guardar email para pre-rellenar el modal la próxima vez
+    try { localStorage.setItem('saved_email', email); } catch (_) {}
+    // onAuthStateChange dispara syncProgress automáticamente
     closeAuthModal();
-    if (currentTab === 'signup') {
-      // Supabase sends a confirmation email by default; inform the user
-      setAuthError('');  // already closed, just let onAuthStateChange fire
-    }
   }
 }
 
 async function logout() {
   if (!supabaseClient) return;
-  await supabaseClient.auth.signOut();
+  console.log('[auth] Cerrando sesión…');
+  const { error } = await supabaseClient.auth.signOut();
+  if (error) { console.warn('[auth] Error en signOut:', error.message); return; }
+  // UI reset — localStorage se mantiene intacto para no perder progreso local
+  const authUser  = document.getElementById('auth-user');
+  const btnLogin  = document.getElementById('btn-login');
+  const btnLogout = document.getElementById('btn-logout');
+  authUser.style.display  = 'none';
+  btnLogin.style.display  = 'inline-block';
+  btnLogout.style.display = 'none';
+  console.log('[auth] Sesión cerrada. Progreso local conservado.');
 }
 
 // ─── Sync (merge local ↔ cloud) ───────────────────────────────────────────────
 
 async function syncProgress(user) {
   if (!supabaseClient || !user) return;
+  console.log('[sync] ── Iniciando para:', user.email, '──────────────────');
 
-  // 1. Estado local
-  const local = loadProgress() || { maxLevel: 1, updatedAt: 0 };
+  // ── Paso 1: leer ambos mundos ─────────────────────────────────────────────
+  const localData  = loadProgress() || { maxLevel: 1, updatedAt: 0 };
+  // parseInt garantiza número, por si localStorage tuviera un string
+  const localLevel = parseInt(localData.maxLevel, 10) || 1;
+  console.log('[sync] Local  → maxLevel:', localLevel, '| updatedAt:', new Date(localData.updatedAt).toLocaleString());
 
-  // 2. Estado en la nube
-  const { data: cloud, error } = await supabaseClient
+  const { data: cloud, error: readErr } = await supabaseClient
     .from('arrow_game_progress')
     .select('max_level, updated_at')
     .eq('id', user.id)
     .single();
 
-  if (error && error.code !== 'PGRST116') {  // PGRST116 = fila inexistente (normal la 1ª vez)
-    console.warn('[sync] error al leer:', error.message);
+  if (readErr && readErr.code !== 'PGRST116') {
+    // Error real de red/permisos → no tocar nada
+    console.warn('[sync] ❌ Error al leer nube:', readErr.message, '(código:', readErr.code + ')');
     return;
   }
+  console.log('[sync] Nube   →', cloud ? `maxLevel: ${cloud.max_level} | updatedAt: ${new Date(cloud.updated_at).toLocaleString()}` : '(sin fila — primer login)');
 
-  // 3. Fusión — gana el nivel más alto; si son iguales gana el más reciente
-  let winner;
+  // ── Paso 2: primer login → INSERT subiendo el nivel local, sin pisar nada ──
   if (!cloud) {
-    winner = local;   // primera vez: el local manda
+    console.log('[sync] Resultado fusión: primer login. Subiendo local (', localLevel, ') a nube.');
+    const { error: insertErr } = await supabaseClient
+      .from('arrow_game_progress')
+      .insert({
+        id:         user.id,
+        max_level:  localLevel,
+        updated_at: new Date(localData.updatedAt || Date.now()).toISOString(),
+      });
+    if (insertErr) console.warn('[sync] ❌ Error en INSERT:', insertErr.message);
+    else           console.log('[sync] ✓ INSERT OK → nube ahora tiene nivel', localLevel);
+    showSynced();
+    return;  // juego ya está en el nivel correcto (boot lo cargó desde localStorage)
+  }
+
+  // ── Paso 3: ambos tienen datos → Math.max; la nube gana si es mayor ────────
+  const cloudLevel = parseInt(cloud.max_level, 10) || 1;
+  const cloudTs    = new Date(cloud.updated_at).getTime();
+  const finalLevel = Math.max(localLevel, cloudLevel);
+  console.log(`[sync] Resultado fusión: Local=${localLevel} | Nube=${cloudLevel} | Final=${finalLevel}`);
+
+  // ── Paso 4a: la nube gana → actualizar local y saltar al nivel superior ────
+  if (cloudLevel > localLevel) {
+    console.log('[sync] ✓ La NUBE gana. Actualizando localStorage y saltando a nivel', cloudLevel);
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify({
+        maxLevel:  cloudLevel,
+        updatedAt: cloudTs,
+      }));
+    } catch (_) {}
+    startLevel(cloudLevel);
+
+  // ── Paso 4b: el local gana (o empatan) → subir la nube ────────────────────
+  } else if (localLevel > cloudLevel) {
+    console.log('[sync] ✓ El LOCAL gana. Actualizando nube a nivel', localLevel);
+    const { error: updateErr } = await supabaseClient
+      .from('arrow_game_progress')
+      .update({
+        max_level:  localLevel,
+        updated_at: new Date(localData.updatedAt || Date.now()).toISOString(),
+      })
+      .eq('id', user.id);
+    if (updateErr) console.warn('[sync] ❌ Error en UPDATE:', updateErr.message);
+    else           console.log('[sync] ✓ UPDATE OK → nube ahora tiene nivel', localLevel);
+    // El juego ya está en el nivel correcto; no llamar startLevel()
+
   } else {
-    const cloudTs   = new Date(cloud.updated_at).getTime();
-    const cloudData = { maxLevel: cloud.max_level, updatedAt: cloudTs };
-
-    if (local.maxLevel > cloudData.maxLevel) {
-      winner = local;
-    } else if (cloudData.maxLevel > local.maxLevel) {
-      winner = cloudData;
-    } else {
-      // Mismo nivel — gana el timestamp más reciente
-      winner = local.updatedAt >= cloudData.updatedAt ? local : cloudData;
-    }
-  }
-
-  // 4. Escribe el ganador en la nube (upsert = insert si no existe, update si existe)
-  const { error: writeErr } = await supabaseClient
-    .from('arrow_game_progress')
-    .upsert({
-      id:         user.id,
-      max_level:  winner.maxLevel,
-      updated_at: new Date(winner.updatedAt || Date.now()).toISOString(),
-    });
-
-  if (writeErr) {
-    console.warn('[sync] error al escribir:', writeErr.message);
-    return;
-  }
-
-  // 5. Escribe el ganador en localStorage para que queden idénticos
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({
-      maxLevel:  winner.maxLevel,
-      updatedAt: winner.updatedAt || Date.now(),
-    }));
-  } catch (_) {}
-
-  // 6. Si la nube tenía un nivel más alto, salta a ese nivel
-  if (winner.maxLevel > levelNumber) {
-    startLevel(winner.maxLevel);
+    // Empate exacto en nivel: no hace falta mover nada
+    console.log('[sync] ✓ Empate en nivel', finalLevel, '— nube y local ya están sincronizados.');
   }
 
   showSynced();
+  console.log('[sync] ── Fin ───────────────────────────────────────────────');
 }
 
 function showSynced() {
@@ -970,26 +994,27 @@ function showSynced() {
   setTimeout(() => { el.style.display = 'none'; }, 2500);
 }
 
-// ─── Auth state listener — punto de entrada de todo el flujo de auth ──────────
+// ─── Auth state listener ──────────────────────────────────────────────────────
 if (supabaseClient) {
   supabaseClient.auth.onAuthStateChange(async (event, session) => {
-    const user     = session?.user ?? null;
+    console.log('[auth] evento:', event, '| usuario:', session?.user?.email ?? 'ninguno');
+    const user      = session?.user ?? null;
+    const authUser  = document.getElementById('auth-user');
     const btnLogin  = document.getElementById('btn-login');
     const btnLogout = document.getElementById('btn-logout');
-    const authUser  = document.getElementById('auth-user');
 
     if (user) {
-      // Usuario autenticado
-      authUser.textContent  = user.email || user.user_metadata?.full_name || 'User';
+      authUser.textContent   = user.email;
       authUser.style.display = 'inline';
       btnLogin.style.display  = 'none';
       btnLogout.style.display = 'inline-block';
 
+      // Sincronizar solo en login real o al recuperar sesión existente al cargar
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
         await syncProgress(user);
       }
     } else {
-      // Sin sesión
+      // SIGNED_OUT: la UI ya la resetea logout(), aquí solo como salvaguarda
       authUser.style.display  = 'none';
       btnLogin.style.display  = 'inline-block';
       btnLogout.style.display = 'none';
