@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Arrow Puzzle</title>
+<!-- Supabase JS v2 (CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -34,12 +36,11 @@
 
   @keyframes shake {
     0%   { transform: translateX(0); }
-    25%  { transform: translateX(-8px); }
-    55%  { transform: translateX(8px); }
-    78%  { transform: translateX(-5px); }
+    25%  { transform: translateX(-6px); }
+    55%  { transform: translateX(6px); }
+    78%  { transform: translateX(-3px); }
     100% { transform: translateX(0); }
   }
-  .shake { animation: shake 0.22s ease; }
 
   #message {
     margin-top: 2rem;
@@ -51,14 +52,36 @@
     text-transform: uppercase;
     transition: color 0.4s;
   }
-  #message.win { color: #3a9e60; }
+  #message.win      { color: #3a9e60; }
+  #message.gameover { color: #c0321f; }
+
+  #status-row {
+    margin-top: 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    justify-content: center;
+    min-height: 1.4rem;
+  }
 
   #counter {
-    margin-top: 0.5rem;
     font-size: 0.7rem;
     color: #ccc;
     letter-spacing: 0.04em;
-    text-align: center;
+  }
+
+  #hearts {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .heart {
+    transition: opacity 0.3s, transform 0.3s;
+  }
+  .heart.lost {
+    opacity: 0;
+    transform: scale(0.4);
   }
 
   #btn-row {
@@ -87,24 +110,230 @@
     color: #3a9e60;
   }
   #btn-next:hover { border-color: #2a7a4a; color: #2a7a4a; }
+
+  #btn-retry {
+    display: none;
+    border-color: #c0321f;
+    color: #c0321f;
+  }
+  #btn-retry:hover { border-color: #8b1a0f; color: #8b1a0f; }
+
+  /* ── GitHub link ── */
+  #github-link {
+    position: fixed;
+    top: 18px;
+    left: 20px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    text-decoration: none;
+    color: #555;
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    opacity: 1;
+    transition: opacity 0.2s;
+  }
+  #github-link:hover { opacity: 0.55; }
+  #github-link svg { fill: currentColor; flex-shrink: 0; }
+
+  /* ── Auth bar ── */
+  #auth-bar {
+    position: fixed;
+    top: 14px;
+    right: 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+  }
+  #auth-user {
+    color: #aaa;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #auth-bar button {
+    margin: 0;
+    padding: 0.3rem 0.9rem;
+    font-size: 0.65rem;
+  }
+  #sync-indicator {
+    font-size: 0.62rem;
+    color: #3a9e60;
+    display: none;
+  }
+
+  /* ── Auth modal ── */
+  #auth-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(245, 244, 239, 0.88);
+    backdrop-filter: blur(4px);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+  #auth-overlay.open { display: flex; }
+
+  #auth-modal {
+    background: #faf9f6;
+    border: 1.5px solid #e2e1da;
+    border-radius: 16px;
+    padding: 2rem 2.2rem 1.8rem;
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  #auth-modal h2 {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #888;
+    margin-bottom: 1.4rem;
+    text-align: center;
+  }
+
+  /* Tab toggle */
+  #auth-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1.4rem;
+    border-bottom: 1.5px solid #e2e1da;
+  }
+  .auth-tab {
+    flex: 1;
+    padding: 0.45rem 0;
+    background: none;
+    border: none;
+    border-radius: 0;
+    border-bottom: 2px solid transparent;
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #bbb;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    margin-bottom: -1.5px;  /* sit on top of the container border */
+  }
+  .auth-tab:hover { color: #555; }
+  .auth-tab.active { color: #333; border-bottom-color: #555; }
+
+  /* Inputs */
+  #auth-modal input {
+    width: 100%;
+    padding: 0.55rem 0.8rem;
+    margin-bottom: 0.75rem;
+    background: #fff;
+    border: 1.5px solid #dddbd4;
+    border-radius: 10px;
+    font-size: 0.78rem;
+    color: #333;
+    outline: none;
+    transition: border-color 0.2s;
+    font-family: inherit;
+  }
+  #auth-modal input:focus { border-color: #999; }
+
+  #auth-submit {
+    width: 100%;
+    margin-top: 0.3rem;
+    padding: 0.55rem;
+    background: #333;
+    border: none;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #f5f4ef;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  #auth-submit:hover { background: #111; }
+
+  #auth-error {
+    font-size: 0.65rem;
+    color: #c0321f;
+    text-align: center;
+    min-height: 1rem;
+    margin-top: 0.6rem;
+    letter-spacing: 0.04em;
+  }
+
+  #auth-close {
+    position: absolute;
+    top: 10px;
+    right: 14px;
+    background: none;
+    border: none;
+    font-size: 1.1rem;
+    color: #bbb;
+    cursor: pointer;
+    padding: 0.2rem 0.4rem;
+    line-height: 1;
+  }
+  #auth-close:hover { color: #555; border: none; }
+  #auth-modal { position: relative; }
 </style>
 </head>
 <body>
 
+<!-- GitHub link (top-left) -->
+<a id="github-link" href="https://github.com/iagoesteevezz" target="_blank" rel="noopener noreferrer">
+  <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+  </svg>
+  iagoesteevezz
+</a>
+
+<!-- Auth bar (top-right) -->
+<div id="auth-bar">
+  <span id="sync-indicator">✓ synced</span>
+  <span id="auth-user" style="display:none"></span>
+  <button id="btn-login"  onclick="openAuthModal()" title="Save progress to the cloud">Sign in</button>
+  <button id="btn-logout" onclick="logout()" style="display:none">Sign out</button>
+</div>
+
+<!-- Auth modal -->
+<div id="auth-overlay">
+  <div id="auth-modal">
+    <button id="auth-close" onclick="closeAuthModal()" title="Close">✕</button>
+    <h2>Save Progress</h2>
+    <div id="auth-tabs">
+      <button class="auth-tab active" onclick="setTab('signin')">Sign In</button>
+      <button class="auth-tab"        onclick="setTab('signup')">Create Account</button>
+    </div>
+    <input  id="auth-email"    type="email"    placeholder="Email"    autocomplete="email" />
+    <input  id="auth-password" type="password" placeholder="Password" autocomplete="current-password" />
+    <button id="auth-submit"   onclick="submitAuth()">Sign In</button>
+    <div    id="auth-error"></div>
+  </div>
+</div>
+
 <div id="level-label">Level <span id="level-num">1</span></div>
 <svg id="board" xmlns="http://www.w3.org/2000/svg"></svg>
 <div id="message">Click an arrow to fire it</div>
-<div id="counter"></div>
+<div id="status-row">
+  <div id="counter"></div>
+  <div id="hearts"></div>
+</div>
 <div id="btn-row">
   <button onclick="restartLevel()">Restart</button>
-  <button id="btn-next" onclick="nextLevel()">Next Level →</button>
+  <button id="btn-next"  onclick="nextLevel()">Next Level →</button>
+  <button id="btn-retry" onclick="restartLevel()">Try Again</button>
 </div>
 
 <script>
 // ─── Constants ────────────────────────────────────────────────────────────────
-const CELL = 70;
-const SW   = 18;
-const EXIT = 1100;
+const CELL      = 70;
+const SW        = 18;
+const EXIT      = 1100;
+const MAX_LIVES = 3;
 
 const COLORS = [
   '#1a237e', '#4a1942', '#1b3a2f', '#7b3f00',
@@ -113,11 +342,24 @@ const COLORS = [
 ];
 
 const DIRS = [
-  { dr: 0, dc:  1 },
-  { dr: 0, dc: -1 },
-  { dr: 1, dc:  0 },
-  { dr:-1, dc:  0 }
+  { dr:  0, dc:  1 },
+  { dr:  0, dc: -1 },
+  { dr:  1, dc:  0 },
+  { dr: -1, dc:  0 }
 ];
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+const rnd  = n   => Math.floor(Math.random() * n);
+const pick = arr => arr[rnd(arr.length)];
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = rnd(i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 
 // ─── Level config ─────────────────────────────────────────────────────────────
 function getLevelConfig(n) {
@@ -129,134 +371,90 @@ function getLevelConfig(n) {
   if (n === 6) return { rows: 6, cols: 6, num: 6, min: 3, max: 6 };
   if (n === 7) return { rows: 7, cols: 7, num: 6, min: 3, max: 6 };
   if (n === 8) return { rows: 8, cols: 8, num: 7, min: 3, max: 7 };
-  // n >= 9: max grid, increasing arrows
   return { rows: 8, cols: 8, num: Math.min(10, 6 + Math.floor((n - 6) / 2)), min: 4, max: 7 };
 }
 
-// ─── Procedural generation ────────────────────────────────────────────────────
-
-function rnd(n)     { return Math.floor(Math.random() * n); }
-function pick(arr)  { return arr[rnd(arr.length)]; }
-
-function shuffle(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = rnd(i + 1);
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-/*  buildBody — walks backwards from (headR, headC) in direction (-dr, -dc),
-    with occasional random turns, building a connected snake of `targetLen` cells.
-    Returns cells[] with tail first, head last (matching game convention).        */
+// ─── Generation ───────────────────────────────────────────────────────────────
 function buildBody(headR, headC, dr, dc, targetLen, occ, rows, cols) {
-  const cells  = [{ r: headR, c: headC }];
-  const has    = (r, c) => cells.some(x => x.r === r && x.c === c);
-  let cr = headR, cc = headC;
-  let bdr = -dr, bdc = -dc;   // current backward direction
+  const cells = [{ r: headR, c: headC }];
+  const has   = (r, c) => cells.some(x => x.r === r && x.c === c);
+  let cr = headR, cc = headC, bdr = -dr, bdc = -dc;
 
   for (let j = 1; j < targetLen; j++) {
     const straight = { dr: bdr,  dc: bdc  };
     const left     = { dr: -bdc, dc: bdr  };
     const right    = { dr: bdc,  dc: -bdr };
-
-    // 70 % prefer straight; 30 % shuffle all options
-    const opts = Math.random() < 0.70
+    const opts     = Math.random() < 0.70
       ? [straight, left, right]
       : shuffle([straight, left, right]);
-
     let moved = false;
     for (const { dr: od, dc: oc } of opts) {
       const tr = cr + od, tc = cc + oc;
       if (tr < 0 || tr >= rows || tc < 0 || tc >= cols) continue;
-      if (occ[tr][tc] !== null) continue;
-      if (has(tr, tc)) continue;
+      if (occ[tr][tc] !== null || has(tr, tc)) continue;
       cells.unshift({ r: tr, c: tc });
-      cr = tr; cc = tc;
-      bdr = od; bdc = oc;
-      moved = true;
-      break;
+      cr = tr; cc = tc; bdr = od; bdc = oc;
+      moved = true; break;
     }
     if (!moved) break;
   }
-
   return cells.length >= 2 ? cells : null;
 }
 
-/*  isLevelSolvable — pure solver simulation.
-    Repeatedly fires any arrow whose exit path is clear until either all arrows
-    are gone (solvable → true) or no arrow can move (deadlock → false).          */
 function isLevelSolvable(arrows, rows, cols) {
-  // Build a temporary occupancy grid
-  const occ = Array.from({ length: rows }, () => Array(cols).fill(null));
+  const occ   = Array.from({ length: rows }, () => Array(cols).fill(null));
   arrows.forEach((a, i) => a.cells.forEach(({ r, c }) => { occ[r][c] = i; }));
   const alive = arrows.map(() => true);
-
   let progress = true;
   while (progress) {
     progress = false;
     for (let i = 0; i < arrows.length; i++) {
       if (!alive[i]) continue;
-      const a  = arrows[i];
-      const n  = a.cells.length;
-      const dr = a.cells[n-1].r - a.cells[n-2].r;
-      const dc = a.cells[n-1].c - a.cells[n-2].c;
-      let r = a.cells[n-1].r + dr, c = a.cells[n-1].c + dc;
+      const n  = arrows[i].cells.length;
+      const dr = arrows[i].cells[n-1].r - arrows[i].cells[n-2].r;
+      const dc = arrows[i].cells[n-1].c - arrows[i].cells[n-2].c;
+      let r = arrows[i].cells[n-1].r + dr, c = arrows[i].cells[n-1].c + dc;
       let clear = true;
       while (r >= 0 && r < rows && c >= 0 && c < cols) {
         if (occ[r][c] !== null) { clear = false; break; }
         r += dr; c += dc;
       }
       if (clear) {
-        a.cells.forEach(({ r, c }) => { occ[r][c] = null; });
-        alive[i] = false;
-        progress  = true;
+        arrows[i].cells.forEach(({ r, c }) => { occ[r][c] = null; });
+        alive[i] = false; progress = true;
       }
     }
   }
-
   return alive.every(v => !v);
 }
 
-/*  randomLayout — places `num` arrows at random positions and directions
-    with no overlapping bodies. Makes no solvability guarantees.                  */
 function randomLayout(rows, cols, num, minLen, maxLen) {
   const colors = shuffle([...COLORS]).slice(0, num);
   const occ    = Array.from({ length: rows }, () => Array(cols).fill(null));
   const arrows = [];
-
   for (let i = 0; i < num; i++) {
     let placed = false;
     for (let att = 0; att < 500 && !placed; att++) {
       const { dr, dc } = pick(DIRS);
       const r = rnd(rows), c = rnd(cols);
       if (occ[r][c] !== null) continue;
-
       const len   = minLen + rnd(maxLen - minLen + 1);
       const cells = buildBody(r, c, dr, dc, len, occ, rows, cols);
       if (!cells) continue;
-
       cells.forEach(({ r, c }) => { occ[r][c] = i; });
       arrows.push({ cells, color: colors[i] });
       placed = true;
     }
-    if (!placed) return null;   // couldn't fit this arrow — discard whole layout
+    if (!placed) return null;
   }
-
   return arrows;
 }
 
-/*  generateLevel — Generate & Validate loop.
-    Generates random layouts until the solver confirms it's solvable.
-    On typical grid sizes this finds a valid level within a few milliseconds.    */
 function generateLevel(rows, cols, num, minLen, maxLen) {
-  let arrows;
-  let attempts = 0;
+  let arrows, attempts = 0;
   do {
     arrows = randomLayout(rows, cols, num, minLen, maxLen);
-    attempts++;
-    if (attempts > 5000) return null;   // safety valve (should never trigger)
+    if (++attempts > 5000) return null;
   } while (!arrows || !isLevelSolvable(arrows, rows, cols));
   return arrows;
 }
@@ -264,31 +462,33 @@ function generateLevel(rows, cols, num, minLen, maxLen) {
 // ─── Game state ───────────────────────────────────────────────────────────────
 let levelNumber = 1;
 let ROWS = 4, COLS = 4;
-let arrowStates = [];
+let arrowStates = [];   // { color, cells, alive, firing, busy }
 let occupancy   = [];
-let animating   = false;
+let lives       = MAX_LIVES;
+let isGameOver  = false;
 let levelDefs   = [];
 
-// ─── Geometry helpers ─────────────────────────────────────────────────────────
+// ─── Geometry ─────────────────────────────────────────────────────────────────
 const cx = c => c * CELL + CELL / 2;
 const cy = r => r * CELL + CELL / 2;
 
 function getDir(cells) {
   const n = cells.length;
-  return { dr: cells[n-1].r - cells[n-2].r,
-           dc: cells[n-1].c - cells[n-2].c };
+  return { dr: cells[n-1].r - cells[n-2].r, dc: cells[n-1].c - cells[n-2].c };
 }
 
 // ─── Occupancy ────────────────────────────────────────────────────────────────
+// Arrows that are 'firing' are removed from occupancy immediately so concurrent
+// clicks correctly see the path as clear.
 function buildOccupancy() {
   occupancy = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
   arrowStates.forEach((a, i) => {
-    if (a.alive) a.cells.forEach(({ r, c }) => { occupancy[r][c] = i; });
+    if (a.alive && !a.firing) a.cells.forEach(({ r, c }) => { occupancy[r][c] = i; });
   });
 }
 
 function isPathClear(idx) {
-  const a  = arrowStates[idx];
+  const a = arrowStates[idx];
   const hd = a.cells[a.cells.length - 1];
   const { dr, dc } = getDir(a.cells);
   let r = hd.r + dr, c = hd.c + dc;
@@ -299,15 +499,25 @@ function isPathClear(idx) {
   return true;
 }
 
+// How many empty cells lie between head and the first blocker (or edge)
+function gapAhead(idx) {
+  const a = arrowStates[idx];
+  const hd = a.cells[a.cells.length - 1];
+  const { dr, dc } = getDir(a.cells);
+  let r = hd.r + dr, c = hd.c + dc, gap = 0;
+  while (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+    if (occupancy[r][c] !== null) break;
+    gap++; r += dr; c += dc;
+  }
+  return gap;
+}
+
 // ─── SVG rendering ────────────────────────────────────────────────────────────
 function makeArrowSVG(a, idx) {
   const { dr, dc } = getDir(a.cells);
-
-  // Body: polyline through all cells (tail → head)
   const pts   = a.cells.map(({ r, c }) => cx(c) + ',' + cy(r));
   const bodyD = `M ${pts.join(' L ')}`;
 
-  // Arrowhead: separate V-path just beyond the head cell centre
   const hd  = a.cells[a.cells.length - 1];
   const hcx = cx(hd.c), hcy = cy(hd.r);
   const ARM  = 18;
@@ -327,32 +537,36 @@ function makeArrowSVG(a, idx) {
   </g>`;
 }
 
-function render() {
+function fullRender() {
   const svg = document.getElementById('board');
   svg.setAttribute('width',  COLS * CELL);
   svg.setAttribute('height', ROWS * CELL);
   svg.innerHTML = arrowStates
     .map((a, i) => a.alive ? makeArrowSVG(a, i) : '')
     .join('');
-  updateUI();
 }
 
-// ─── Interaction ──────────────────────────────────────────────────────────────
+function hideArrow(idx) {
+  const g = document.getElementById('ag' + idx);
+  if (g) g.style.display = 'none';
+}
+
+// ─── Click handling ───────────────────────────────────────────────────────────
 document.getElementById('board').addEventListener('click', e => {
-  if (animating) return;
+  if (isGameOver) return;
   const rect = e.currentTarget.getBoundingClientRect();
   const col  = Math.floor((e.clientX - rect.left) / CELL);
   const row  = Math.floor((e.clientY - rect.top)  / CELL);
   if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return;
-  const idx  = occupancy[row]?.[col];
+  const idx = occupancy[row]?.[col];
   if (idx == null) return;
   handleClick(idx);
 });
 
 function handleClick(idx) {
-  if (animating) return;
+  if (isGameOver) return;
   const a = arrowStates[idx];
-  if (!a?.alive) return;
+  if (!a?.alive || a.busy) return;   // per-arrow lock (not global!)
 
   const { dr, dc } = getDir(a.cells);
   const g      = document.getElementById('ag'   + idx);
@@ -361,75 +575,190 @@ function handleClick(idx) {
 
   if (isPathClear(idx)) {
     // ── FIRE ────────────────────────────────────────────────────────────────
-    animating = true;
+    a.busy   = true;
+    a.firing = true;
+    buildOccupancy();   // remove from occupancy NOW so concurrent clicks work
 
-    // 1. Measure original body length before extending
     const L_orig = bodyEl.getTotalLength();
-
-    // 2. Extend body track: append exit segment from head cell centre
     const hd = a.cells[a.cells.length - 1];
     const lx = cx(hd.c), ly = cy(hd.r);
     bodyEl.setAttribute('d',
       bodyEl.getAttribute('d') + ` L ${lx + dc * EXIT},${ly + dr * EXIT}`);
 
-    // 3. Initial dash state (no transition yet)
     bodyEl.style.transition      = 'none';
     bodyEl.style.strokeDasharray = `${L_orig} 99999`;
     bodyEl.style.strokeDashoffset = '0';
     headEl.style.transition = 'none';
     headEl.style.transform  = 'translate(0px, 0px)';
 
-    // 4. Double rAF → browser paints frame 0 before transition starts
     const DUR = 500;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        // Body: dash slides forward (negative offset = snake moves along track)
         bodyEl.style.transition       = `stroke-dashoffset ${DUR}ms linear`;
         bodyEl.style.strokeDashoffset = `${-(L_orig + EXIT + 60)}`;
-
-        // Arrowhead: translate in sync, same duration + easing
         headEl.style.transition = `transform ${DUR}ms linear`;
         headEl.style.transform  = `translate(${dc * (EXIT + 60)}px, ${dr * (EXIT + 60)}px)`;
       });
     });
 
     setTimeout(() => {
-      a.alive = false;
+      a.alive  = false;
+      a.busy   = false;
+      a.firing = false;
       buildOccupancy();
-      animating = false;
-      render();
+      hideArrow(idx);
+      checkWin();
     }, DUR + 150);
 
   } else {
-    // ── BLOCKED ─────────────────────────────────────────────────────────────
-    bodyEl.setAttribute('stroke', '#c0321f');
-    headEl.setAttribute('stroke', '#c0321f');
+    // ── BOUNCE (blocked) — same dashoffset technique as FIRE ─────────────────
+    a.busy = true;
+    loseLife();
 
-    g.style.animation = 'none';
-    g.getBBox();
-    g.style.animation = '';
-    g.classList.add('shake');
+    const gap      = gapAhead(idx);
+    const slideDist = gap > 0 ? gap * CELL : CELL * 0.35;  // nudge even when gap=0
+    const FWD      = 100 + gap * 40;
+    const BACK     = 300;
 
-    g.addEventListener('animationend', () => {
-      g.classList.remove('shake');
-      bodyEl.setAttribute('stroke', a.color);
-      headEl.setAttribute('stroke', a.color);
-    }, { once: true });
+    // Save original path d so we can restore it after the bounce
+    const origD = bodyEl.getAttribute('d');
+
+    // 1. Measure original body length, then extend the track by slideDist
+    const L_orig = bodyEl.getTotalLength();
+    const hd = a.cells[a.cells.length - 1];
+    const lx = cx(hd.c), ly = cy(hd.r);
+    bodyEl.setAttribute('d', origD + ` L ${lx + dc * (slideDist + 20)},${ly + dr * (slideDist + 20)}`);
+
+    // 2. Set initial dash state (snake = L_orig, huge gap)
+    bodyEl.style.transition      = 'none';
+    bodyEl.style.strokeDasharray = `${L_orig} 99999`;
+    bodyEl.style.strokeDashoffset = '0';
+    headEl.style.transition = 'none';
+    headEl.style.transform  = 'translate(0px, 0px)';
+
+    // 3. Phase 1 — slide body forward via dashoffset; head via translate (same dist)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        bodyEl.style.transition       = `stroke-dashoffset ${FWD}ms ease-out`;
+        bodyEl.style.strokeDashoffset = `${-slideDist}`;
+        headEl.style.transition = `transform ${FWD}ms ease-out`;
+        headEl.style.transform  = `translate(${dc * slideDist}px, ${dr * slideDist}px)`;
+      });
+    });
+
+    // 4. Phase 2 — impact: flash red, then slide back
+    setTimeout(() => {
+      bodyEl.setAttribute('stroke', '#c0321f');
+      headEl.setAttribute('stroke', '#c0321f');
+
+      bodyEl.style.transition       = `stroke-dashoffset ${BACK}ms cubic-bezier(.36,.07,.19,.97)`;
+      bodyEl.style.strokeDashoffset = '0';
+      headEl.style.transition = `transform ${BACK}ms cubic-bezier(.36,.07,.19,.97)`;
+      headEl.style.transform  = 'translate(0px, 0px)';
+
+      // 5. Cleanup — restore original path and colors; no visual flash because
+      //    dashoffset=0 + dasharray=L_orig means the visible dash is exactly L_orig,
+      //    which equals the original path length, so restoring d causes no jump.
+      setTimeout(() => {
+        bodyEl.style.transition      = 'none';
+        bodyEl.style.strokeDasharray  = '';
+        bodyEl.style.strokeDashoffset = '';
+        headEl.style.transition = 'none';
+        headEl.style.transform  = '';
+        bodyEl.setAttribute('d', origD);
+        bodyEl.setAttribute('stroke', a.color);
+        headEl.setAttribute('stroke', a.color);
+        a.busy = false;
+      }, BACK + 60);
+    }, FWD + 20);
   }
 }
 
-// ─── UI ───────────────────────────────────────────────────────────────────────
-function updateUI() {
-  const n   = arrowStates.filter(a => a.alive).length;
+// ─── Lives ────────────────────────────────────────────────────────────────────
+function loseLife() {
+  if (lives <= 0) return;
+  lives--;
+  renderHearts();
+  if (lives === 0) triggerGameOver();
+}
+
+function renderHearts() {
+  const container = document.getElementById('hearts');
+  const hearts    = container.querySelectorAll('.heart');
+  hearts.forEach((h, i) => {
+    h.classList.toggle('lost', i >= lives);
+  });
+}
+
+function buildHearts() {
+  const container = document.getElementById('hearts');
+  container.innerHTML = '';
+  for (let i = 0; i < MAX_LIVES; i++) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width',  '18');
+    svg.setAttribute('height', '18');
+    svg.classList.add('heart');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z');
+    path.setAttribute('fill', '#e57373');
+    svg.appendChild(path);
+    container.appendChild(svg);
+  }
+}
+
+// ─── Win / Game over ──────────────────────────────────────────────────────────
+function checkWin() {
+  const remaining = arrowStates.filter(a => a.alive).length;
   const msg = document.getElementById('message');
   document.getElementById('counter').textContent =
-    n === 1 ? '1 arrow remaining' : `${n} arrows remaining`;
+    remaining === 1 ? '1 arrow remaining' : `${remaining} arrows remaining`;
 
-  if (n === 0) {
+  if (remaining === 0) {
     msg.textContent = '✓ Level complete!';
-    msg.classList.add('win');
+    msg.className   = 'win';
     document.getElementById('btn-next').style.display = 'inline-block';
   }
+}
+
+function triggerGameOver() {
+  isGameOver = true;
+  const msg = document.getElementById('message');
+  msg.textContent = '✗ No lives left!';
+  msg.className   = 'gameover';
+  document.getElementById('btn-retry').style.display = 'inline-block';
+}
+
+// ─── UI helpers ───────────────────────────────────────────────────────────────
+function resetUI() {
+  const msg = document.getElementById('message');
+  msg.textContent = 'Click an arrow to fire it';
+  msg.className   = '';
+  document.getElementById('btn-next').style.display  = 'none';
+  document.getElementById('btn-retry').style.display = 'none';
+}
+
+// ─── Progress persistence (localStorage) ─────────────────────────────────────
+const SAVE_KEY = 'arrowPuzzle_progress';
+
+function saveProgress() {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      maxLevel:  levelNumber,
+      updatedAt: Date.now(),
+    }));
+  } catch (_) { /* private/incognito mode — fail silently */ }
+}
+
+function loadProgress() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    // Basic validation: must have a numeric maxLevel ≥ 1
+    if (typeof data.maxLevel === 'number' && data.maxLevel >= 1) return data;
+  } catch (_) { /* corrupt data — ignore */ }
+  return null;
 }
 
 // ─── Level flow ───────────────────────────────────────────────────────────────
@@ -437,34 +766,243 @@ function startLevel(n) {
   levelNumber = n;
   const cfg   = getLevelConfig(n);
   ROWS = cfg.rows; COLS = cfg.cols;
+  lives     = MAX_LIVES;
+  isGameOver = false;
 
-  // Retry generation up to 100 times (should rarely need more than 2–3)
   let defs = null;
-  for (let t = 0; t < 100 && !defs; t++) {
+  for (let t = 0; t < 100 && !defs; t++)
     defs = generateLevel(ROWS, COLS, cfg.num, cfg.min, cfg.max);
-  }
-  if (!defs) { console.error('Level generation failed — retrying…'); startLevel(n); return; }
+  if (!defs) { startLevel(n); return; }
 
   levelDefs   = defs;
   arrowStates = defs.map(d => ({
-    color: d.color,
-    cells: d.cells.map(c => ({ ...c })),
-    alive: true,
+    color:  d.color,
+    cells:  d.cells.map(c => ({ ...c })),
+    alive:  true,
+    firing: false,
+    busy:   false,
   }));
   buildOccupancy();
-  animating = false;
 
   document.getElementById('level-num').textContent = n;
-  document.getElementById('message').textContent   = 'Click an arrow to fire it';
-  document.getElementById('message').classList.remove('win');
-  document.getElementById('btn-next').style.display = 'none';
-  render();
+  const remaining = arrowStates.length;
+  document.getElementById('counter').textContent =
+    remaining === 1 ? '1 arrow remaining' : `${remaining} arrows remaining`;
+
+  buildHearts();
+  resetUI();
+  fullRender();
 }
 
 function restartLevel() { startLevel(levelNumber); }
-function nextLevel()    { startLevel(levelNumber + 1); }
 
-startLevel(1);
+function nextLevel() {
+  saveProgress();          // persist before advancing
+  startLevel(levelNumber + 1);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  SUPABASE — Auth + Cloud sync
+//  Pega aquí tus credenciales del proyecto Supabase
+// ═════════════════════════════════════════════════════════════════════════════
+const SUPABASE_URL = 'https://vllurrtaxijlzuyussjs.supabase.co';      // ej. https://xyz.supabase.co
+const SUPABASE_KEY = 'sb_publishable_cBuhWyK4y5GvY8qC7EFGSw_CH243IBY'; // anon/public key
+
+const supabaseClient = window.supabase
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
+  : null;  // si el CDN no cargó, el juego sigue funcionando en modo local
+
+// ─── Modal helpers ────────────────────────────────────────────────────────────
+let currentTab = 'signin';
+
+function openAuthModal() {
+  setTab('signin');
+  document.getElementById('auth-email').value    = '';
+  document.getElementById('auth-password').value = '';
+  setAuthError('');
+  document.getElementById('auth-overlay').classList.add('open');
+  document.getElementById('auth-email').focus();
+}
+
+function closeAuthModal() {
+  document.getElementById('auth-overlay').classList.remove('open');
+}
+
+function setTab(tab) {
+  currentTab = tab;
+  const tabs   = document.querySelectorAll('.auth-tab');
+  const submit = document.getElementById('auth-submit');
+  tabs[0].classList.toggle('active', tab === 'signin');
+  tabs[1].classList.toggle('active', tab === 'signup');
+  submit.textContent = tab === 'signin' ? 'Sign In' : 'Create Account';
+  document.getElementById('auth-password').setAttribute(
+    'autocomplete', tab === 'signin' ? 'current-password' : 'new-password'
+  );
+  setAuthError('');
+}
+
+function setAuthError(msg) {
+  document.getElementById('auth-error').textContent = msg;
+}
+
+// Close modal on overlay click (outside the card)
+document.getElementById('auth-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('auth-overlay')) closeAuthModal();
+});
+
+// Submit on Enter key
+document.getElementById('auth-password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitAuth();
+});
+
+// ─── Auth actions ─────────────────────────────────────────────────────────────
+async function submitAuth() {
+  if (!supabaseClient) { setAuthError('Supabase no disponible'); return; }
+
+  const email    = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const submit   = document.getElementById('auth-submit');
+
+  if (!email || !password) { setAuthError('Email and password are required.'); return; }
+
+  submit.disabled    = true;
+  submit.textContent = '…';
+  setAuthError('');
+
+  let error;
+  if (currentTab === 'signin') {
+    ({ error } = await supabaseClient.auth.signInWithPassword({ email, password }));
+  } else {
+    ({ error } = await supabaseClient.auth.signUp({ email, password }));
+  }
+
+  submit.disabled    = false;
+  submit.textContent = currentTab === 'signin' ? 'Sign In' : 'Create Account';
+
+  if (error) {
+    setAuthError(error.message);
+  } else {
+    // onAuthStateChange handles the rest (syncProgress + UI update)
+    closeAuthModal();
+    if (currentTab === 'signup') {
+      // Supabase sends a confirmation email by default; inform the user
+      setAuthError('');  // already closed, just let onAuthStateChange fire
+    }
+  }
+}
+
+async function logout() {
+  if (!supabaseClient) return;
+  await supabaseClient.auth.signOut();
+}
+
+// ─── Sync (merge local ↔ cloud) ───────────────────────────────────────────────
+
+async function syncProgress(user) {
+  if (!supabaseClient || !user) return;
+
+  // 1. Estado local
+  const local = loadProgress() || { maxLevel: 1, updatedAt: 0 };
+
+  // 2. Estado en la nube
+  const { data: cloud, error } = await supabaseClient
+    .from('arrow_game_progress')
+    .select('max_level, updated_at')
+    .eq('id', user.id)
+    .single();
+
+  if (error && error.code !== 'PGRST116') {  // PGRST116 = fila inexistente (normal la 1ª vez)
+    console.warn('[sync] error al leer:', error.message);
+    return;
+  }
+
+  // 3. Fusión — gana el nivel más alto; si son iguales gana el más reciente
+  let winner;
+  if (!cloud) {
+    winner = local;   // primera vez: el local manda
+  } else {
+    const cloudTs   = new Date(cloud.updated_at).getTime();
+    const cloudData = { maxLevel: cloud.max_level, updatedAt: cloudTs };
+
+    if (local.maxLevel > cloudData.maxLevel) {
+      winner = local;
+    } else if (cloudData.maxLevel > local.maxLevel) {
+      winner = cloudData;
+    } else {
+      // Mismo nivel — gana el timestamp más reciente
+      winner = local.updatedAt >= cloudData.updatedAt ? local : cloudData;
+    }
+  }
+
+  // 4. Escribe el ganador en la nube (upsert = insert si no existe, update si existe)
+  const { error: writeErr } = await supabaseClient
+    .from('arrow_game_progress')
+    .upsert({
+      id:         user.id,
+      max_level:  winner.maxLevel,
+      updated_at: new Date(winner.updatedAt || Date.now()).toISOString(),
+    });
+
+  if (writeErr) {
+    console.warn('[sync] error al escribir:', writeErr.message);
+    return;
+  }
+
+  // 5. Escribe el ganador en localStorage para que queden idénticos
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      maxLevel:  winner.maxLevel,
+      updatedAt: winner.updatedAt || Date.now(),
+    }));
+  } catch (_) {}
+
+  // 6. Si la nube tenía un nivel más alto, salta a ese nivel
+  if (winner.maxLevel > levelNumber) {
+    startLevel(winner.maxLevel);
+  }
+
+  showSynced();
+}
+
+function showSynced() {
+  const el = document.getElementById('sync-indicator');
+  el.style.display = 'inline';
+  setTimeout(() => { el.style.display = 'none'; }, 2500);
+}
+
+// ─── Auth state listener — punto de entrada de todo el flujo de auth ──────────
+if (supabaseClient) {
+  supabaseClient.auth.onAuthStateChange(async (event, session) => {
+    const user     = session?.user ?? null;
+    const btnLogin  = document.getElementById('btn-login');
+    const btnLogout = document.getElementById('btn-logout');
+    const authUser  = document.getElementById('auth-user');
+
+    if (user) {
+      // Usuario autenticado
+      authUser.textContent  = user.email || user.user_metadata?.full_name || 'User';
+      authUser.style.display = 'inline';
+      btnLogin.style.display  = 'none';
+      btnLogout.style.display = 'inline-block';
+
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        await syncProgress(user);
+      }
+    } else {
+      // Sin sesión
+      authUser.style.display  = 'none';
+      btnLogin.style.display  = 'inline-block';
+      btnLogout.style.display = 'none';
+    }
+  });
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+(function boot() {
+  const saved = loadProgress();
+  const startAt = saved ? saved.maxLevel : 1;
+  startLevel(startAt);
+})();
 </script>
 </body>
 </html>
