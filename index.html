@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arrow Puzzle</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #f5f4ef;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  }
+
+  #level-label {
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #c0bfb8;
+    margin-bottom: 2.5rem;
+  }
+
+  #board {
+    display: block;
+    cursor: pointer;
+    overflow: visible;
+  }
+
+  @keyframes shake {
+    0%   { transform: translateX(0); }
+    25%  { transform: translateX(-8px); }
+    55%  { transform: translateX(8px); }
+    78%  { transform: translateX(-5px); }
+    100% { transform: translateX(0); }
+  }
+  .shake { animation: shake 0.22s ease; }
+
+  #message {
+    margin-top: 2rem;
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    color: #c0bfb8;
+    text-align: center;
+    text-transform: uppercase;
+    transition: color 0.4s;
+  }
+  #message.win { color: #3a9e60; }
+
+  #counter {
+    margin-top: 0.5rem;
+    font-size: 0.7rem;
+    color: #ccc;
+    letter-spacing: 0.04em;
+    text-align: center;
+  }
+
+  #btn-row {
+    margin-top: 1.8rem;
+    display: flex;
+    gap: 0.8rem;
+  }
+
+  button {
+    padding: 0.45rem 1.5rem;
+    background: none;
+    border: 1.5px solid #d8d7d0;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #aaa;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  button:hover { border-color: #555; color: #333; }
+
+  #btn-next {
+    display: none;
+    border-color: #3a9e60;
+    color: #3a9e60;
+  }
+  #btn-next:hover { border-color: #2a7a4a; color: #2a7a4a; }
+</style>
+</head>
+<body>
+
+<div id="level-label">Level <span id="level-num">1</span></div>
+<svg id="board" xmlns="http://www.w3.org/2000/svg"></svg>
+<div id="message">Click an arrow to fire it</div>
+<div id="counter"></div>
+<div id="btn-row">
+  <button onclick="restartLevel()">Restart</button>
+  <button id="btn-next" onclick="nextLevel()">Next Level →</button>
+</div>
+
+<script>
+// ─── Constants ────────────────────────────────────────────────────────────────
+const CELL = 70;
+const SW   = 18;
+const EXIT = 1100;
+
+const COLORS = [
+  '#1a237e', '#4a1942', '#1b3a2f', '#7b3f00',
+  '#546e7a', '#1c1c1c', '#003d6b', '#3b1a08',
+  '#2d4a1e', '#4a0a0a'
+];
+
+const DIRS = [
+  { dr: 0, dc:  1 },
+  { dr: 0, dc: -1 },
+  { dr: 1, dc:  0 },
+  { dr:-1, dc:  0 }
+];
+
+// ─── Level config ─────────────────────────────────────────────────────────────
+function getLevelConfig(n) {
+  if (n === 1) return { rows: 4, cols: 4, num: 3, min: 2, max: 3 };
+  if (n === 2) return { rows: 4, cols: 4, num: 4, min: 2, max: 4 };
+  if (n === 3) return { rows: 5, cols: 5, num: 4, min: 2, max: 4 };
+  if (n === 4) return { rows: 5, cols: 5, num: 5, min: 3, max: 5 };
+  if (n === 5) return { rows: 6, cols: 6, num: 5, min: 3, max: 5 };
+  if (n === 6) return { rows: 6, cols: 6, num: 6, min: 3, max: 6 };
+  if (n === 7) return { rows: 7, cols: 7, num: 6, min: 3, max: 6 };
+  if (n === 8) return { rows: 8, cols: 8, num: 7, min: 3, max: 7 };
+  // n >= 9: max grid, increasing arrows
+  return { rows: 8, cols: 8, num: Math.min(10, 6 + Math.floor((n - 6) / 2)), min: 4, max: 7 };
+}
+
+// ─── Procedural generation ────────────────────────────────────────────────────
+
+function rnd(n)     { return Math.floor(Math.random() * n); }
+function pick(arr)  { return arr[rnd(arr.length)]; }
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = rnd(i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/*  buildBody — walks backwards from (headR, headC) in direction (-dr, -dc),
+    with occasional random turns, building a connected snake of `targetLen` cells.
+    Returns cells[] with tail first, head last (matching game convention).        */
+function buildBody(headR, headC, dr, dc, targetLen, occ, rows, cols) {
+  const cells  = [{ r: headR, c: headC }];
+  const has    = (r, c) => cells.some(x => x.r === r && x.c === c);
+  let cr = headR, cc = headC;
+  let bdr = -dr, bdc = -dc;   // current backward direction
+
+  for (let j = 1; j < targetLen; j++) {
+    const straight = { dr: bdr,  dc: bdc  };
+    const left     = { dr: -bdc, dc: bdr  };
+    const right    = { dr: bdc,  dc: -bdr };
+
+    // 70 % prefer straight; 30 % shuffle all options
+    const opts = Math.random() < 0.70
+      ? [straight, left, right]
+      : shuffle([straight, left, right]);
+
+    let moved = false;
+    for (const { dr: od, dc: oc } of opts) {
+      const tr = cr + od, tc = cc + oc;
+      if (tr < 0 || tr >= rows || tc < 0 || tc >= cols) continue;
+      if (occ[tr][tc] !== null) continue;
+      if (has(tr, tc)) continue;
+      cells.unshift({ r: tr, c: tc });
+      cr = tr; cc = tc;
+      bdr = od; bdc = oc;
+      moved = true;
+      break;
+    }
+    if (!moved) break;
+  }
+
+  return cells.length >= 2 ? cells : null;
+}
+
+/*  isLevelSolvable — pure solver simulation.
+    Repeatedly fires any arrow whose exit path is clear until either all arrows
+    are gone (solvable → true) or no arrow can move (deadlock → false).          */
+function isLevelSolvable(arrows, rows, cols) {
+  // Build a temporary occupancy grid
+  const occ = Array.from({ length: rows }, () => Array(cols).fill(null));
+  arrows.forEach((a, i) => a.cells.forEach(({ r, c }) => { occ[r][c] = i; }));
+  const alive = arrows.map(() => true);
+
+  let progress = true;
+  while (progress) {
+    progress = false;
+    for (let i = 0; i < arrows.length; i++) {
+      if (!alive[i]) continue;
+      const a  = arrows[i];
+      const n  = a.cells.length;
+      const dr = a.cells[n-1].r - a.cells[n-2].r;
+      const dc = a.cells[n-1].c - a.cells[n-2].c;
+      let r = a.cells[n-1].r + dr, c = a.cells[n-1].c + dc;
+      let clear = true;
+      while (r >= 0 && r < rows && c >= 0 && c < cols) {
+        if (occ[r][c] !== null) { clear = false; break; }
+        r += dr; c += dc;
+      }
+      if (clear) {
+        a.cells.forEach(({ r, c }) => { occ[r][c] = null; });
+        alive[i] = false;
+        progress  = true;
+      }
+    }
+  }
+
+  return alive.every(v => !v);
+}
+
+/*  randomLayout — places `num` arrows at random positions and directions
+    with no overlapping bodies. Makes no solvability guarantees.                  */
+function randomLayout(rows, cols, num, minLen, maxLen) {
+  const colors = shuffle([...COLORS]).slice(0, num);
+  const occ    = Array.from({ length: rows }, () => Array(cols).fill(null));
+  const arrows = [];
+
+  for (let i = 0; i < num; i++) {
+    let placed = false;
+    for (let att = 0; att < 500 && !placed; att++) {
+      const { dr, dc } = pick(DIRS);
+      const r = rnd(rows), c = rnd(cols);
+      if (occ[r][c] !== null) continue;
+
+      const len   = minLen + rnd(maxLen - minLen + 1);
+      const cells = buildBody(r, c, dr, dc, len, occ, rows, cols);
+      if (!cells) continue;
+
+      cells.forEach(({ r, c }) => { occ[r][c] = i; });
+      arrows.push({ cells, color: colors[i] });
+      placed = true;
+    }
+    if (!placed) return null;   // couldn't fit this arrow — discard whole layout
+  }
+
+  return arrows;
+}
+
+/*  generateLevel — Generate & Validate loop.
+    Generates random layouts until the solver confirms it's solvable.
+    On typical grid sizes this finds a valid level within a few milliseconds.    */
+function generateLevel(rows, cols, num, minLen, maxLen) {
+  let arrows;
+  let attempts = 0;
+  do {
+    arrows = randomLayout(rows, cols, num, minLen, maxLen);
+    attempts++;
+    if (attempts > 5000) return null;   // safety valve (should never trigger)
+  } while (!arrows || !isLevelSolvable(arrows, rows, cols));
+  return arrows;
+}
+
+// ─── Game state ───────────────────────────────────────────────────────────────
+let levelNumber = 1;
+let ROWS = 4, COLS = 4;
+let arrowStates = [];
+let occupancy   = [];
+let animating   = false;
+let levelDefs   = [];
+
+// ─── Geometry helpers ─────────────────────────────────────────────────────────
+const cx = c => c * CELL + CELL / 2;
+const cy = r => r * CELL + CELL / 2;
+
+function getDir(cells) {
+  const n = cells.length;
+  return { dr: cells[n-1].r - cells[n-2].r,
+           dc: cells[n-1].c - cells[n-2].c };
+}
+
+// ─── Occupancy ────────────────────────────────────────────────────────────────
+function buildOccupancy() {
+  occupancy = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+  arrowStates.forEach((a, i) => {
+    if (a.alive) a.cells.forEach(({ r, c }) => { occupancy[r][c] = i; });
+  });
+}
+
+function isPathClear(idx) {
+  const a  = arrowStates[idx];
+  const hd = a.cells[a.cells.length - 1];
+  const { dr, dc } = getDir(a.cells);
+  let r = hd.r + dr, c = hd.c + dc;
+  while (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+    if (occupancy[r][c] !== null) return false;
+    r += dr; c += dc;
+  }
+  return true;
+}
+
+// ─── SVG rendering ────────────────────────────────────────────────────────────
+function makeArrowSVG(a, idx) {
+  const { dr, dc } = getDir(a.cells);
+
+  // Body: polyline through all cells (tail → head)
+  const pts   = a.cells.map(({ r, c }) => cx(c) + ',' + cy(r));
+  const bodyD = `M ${pts.join(' L ')}`;
+
+  // Arrowhead: separate V-path just beyond the head cell centre
+  const hd  = a.cells[a.cells.length - 1];
+  const hcx = cx(hd.c), hcy = cy(hd.r);
+  const ARM  = 18;
+  const tipX = hcx + dc * 28, tipY = hcy + dr * 28;
+  const bkX  = hcx + dc * 8,  bkY  = hcy + dr * 8;
+  const w1x  = bkX + (-dr) * ARM, w1y = bkY + dc * ARM;
+  const w2x  = bkX - (-dr) * ARM, w2y = bkY - dc * ARM;
+  const headD = `M ${w1x},${w1y} L ${tipX},${tipY} L ${w2x},${w2y}`;
+
+  return `<g id="ag${idx}">
+    <path id="body${idx}" d="${bodyD}"
+      stroke="${a.color}" stroke-width="${SW}"
+      stroke-linejoin="round" stroke-linecap="round" fill="none"/>
+    <path id="head${idx}" d="${headD}"
+      stroke="${a.color}" stroke-width="${SW}"
+      stroke-linejoin="round" stroke-linecap="round" fill="none"/>
+  </g>`;
+}
+
+function render() {
+  const svg = document.getElementById('board');
+  svg.setAttribute('width',  COLS * CELL);
+  svg.setAttribute('height', ROWS * CELL);
+  svg.innerHTML = arrowStates
+    .map((a, i) => a.alive ? makeArrowSVG(a, i) : '')
+    .join('');
+  updateUI();
+}
+
+// ─── Interaction ──────────────────────────────────────────────────────────────
+document.getElementById('board').addEventListener('click', e => {
+  if (animating) return;
+  const rect = e.currentTarget.getBoundingClientRect();
+  const col  = Math.floor((e.clientX - rect.left) / CELL);
+  const row  = Math.floor((e.clientY - rect.top)  / CELL);
+  if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return;
+  const idx  = occupancy[row]?.[col];
+  if (idx == null) return;
+  handleClick(idx);
+});
+
+function handleClick(idx) {
+  if (animating) return;
+  const a = arrowStates[idx];
+  if (!a?.alive) return;
+
+  const { dr, dc } = getDir(a.cells);
+  const g      = document.getElementById('ag'   + idx);
+  const bodyEl = document.getElementById('body' + idx);
+  const headEl = document.getElementById('head' + idx);
+
+  if (isPathClear(idx)) {
+    // ── FIRE ────────────────────────────────────────────────────────────────
+    animating = true;
+
+    // 1. Measure original body length before extending
+    const L_orig = bodyEl.getTotalLength();
+
+    // 2. Extend body track: append exit segment from head cell centre
+    const hd = a.cells[a.cells.length - 1];
+    const lx = cx(hd.c), ly = cy(hd.r);
+    bodyEl.setAttribute('d',
+      bodyEl.getAttribute('d') + ` L ${lx + dc * EXIT},${ly + dr * EXIT}`);
+
+    // 3. Initial dash state (no transition yet)
+    bodyEl.style.transition      = 'none';
+    bodyEl.style.strokeDasharray = `${L_orig} 99999`;
+    bodyEl.style.strokeDashoffset = '0';
+    headEl.style.transition = 'none';
+    headEl.style.transform  = 'translate(0px, 0px)';
+
+    // 4. Double rAF → browser paints frame 0 before transition starts
+    const DUR = 500;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        // Body: dash slides forward (negative offset = snake moves along track)
+        bodyEl.style.transition       = `stroke-dashoffset ${DUR}ms linear`;
+        bodyEl.style.strokeDashoffset = `${-(L_orig + EXIT + 60)}`;
+
+        // Arrowhead: translate in sync, same duration + easing
+        headEl.style.transition = `transform ${DUR}ms linear`;
+        headEl.style.transform  = `translate(${dc * (EXIT + 60)}px, ${dr * (EXIT + 60)}px)`;
+      });
+    });
+
+    setTimeout(() => {
+      a.alive = false;
+      buildOccupancy();
+      animating = false;
+      render();
+    }, DUR + 150);
+
+  } else {
+    // ── BLOCKED ─────────────────────────────────────────────────────────────
+    bodyEl.setAttribute('stroke', '#c0321f');
+    headEl.setAttribute('stroke', '#c0321f');
+
+    g.style.animation = 'none';
+    g.getBBox();
+    g.style.animation = '';
+    g.classList.add('shake');
+
+    g.addEventListener('animationend', () => {
+      g.classList.remove('shake');
+      bodyEl.setAttribute('stroke', a.color);
+      headEl.setAttribute('stroke', a.color);
+    }, { once: true });
+  }
+}
+
+// ─── UI ───────────────────────────────────────────────────────────────────────
+function updateUI() {
+  const n   = arrowStates.filter(a => a.alive).length;
+  const msg = document.getElementById('message');
+  document.getElementById('counter').textContent =
+    n === 1 ? '1 arrow remaining' : `${n} arrows remaining`;
+
+  if (n === 0) {
+    msg.textContent = '✓ Level complete!';
+    msg.classList.add('win');
+    document.getElementById('btn-next').style.display = 'inline-block';
+  }
+}
+
+// ─── Level flow ───────────────────────────────────────────────────────────────
+function startLevel(n) {
+  levelNumber = n;
+  const cfg   = getLevelConfig(n);
+  ROWS = cfg.rows; COLS = cfg.cols;
+
+  // Retry generation up to 100 times (should rarely need more than 2–3)
+  let defs = null;
+  for (let t = 0; t < 100 && !defs; t++) {
+    defs = generateLevel(ROWS, COLS, cfg.num, cfg.min, cfg.max);
+  }
+  if (!defs) { console.error('Level generation failed — retrying…'); startLevel(n); return; }
+
+  levelDefs   = defs;
+  arrowStates = defs.map(d => ({
+    color: d.color,
+    cells: d.cells.map(c => ({ ...c })),
+    alive: true,
+  }));
+  buildOccupancy();
+  animating = false;
+
+  document.getElementById('level-num').textContent = n;
+  document.getElementById('message').textContent   = 'Click an arrow to fire it';
+  document.getElementById('message').classList.remove('win');
+  document.getElementById('btn-next').style.display = 'none';
+  render();
+}
+
+function restartLevel() { startLevel(levelNumber); }
+function nextLevel()    { startLevel(levelNumber + 1); }
+
+startLevel(1);
+</script>
+</body>
+</html>
