@@ -1,0 +1,283 @@
+/* ─── Reset ──────────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #f5f4ef;
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+/* ─── Level label ────────────────────────────────────────────────────────────── */
+#level-label {
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #c0bfb8;
+  margin-bottom: 2.5rem;
+}
+
+/* ─── Board ──────────────────────────────────────────────────────────────────── */
+#board {
+  display: block;
+  cursor: pointer;
+  overflow: visible;
+}
+
+/* ─── Shake animation (blocked arrows) ──────────────────────────────────────── */
+@keyframes shake {
+  0%   { transform: translateX(0); }
+  25%  { transform: translateX(-6px); }
+  55%  { transform: translateX(6px); }
+  78%  { transform: translateX(-3px); }
+  100% { transform: translateX(0); }
+}
+
+/* ─── Message ────────────────────────────────────────────────────────────────── */
+#message {
+  margin-top: 2rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: #c0bfb8;
+  text-align: center;
+  text-transform: uppercase;
+  transition: color 0.4s;
+}
+#message.win      { color: #3a9e60; }
+#message.gameover { color: #c0321f; }
+
+/* ─── Status row (counter + hearts) ─────────────────────────────────────────── */
+#status-row {
+  margin-top: 0.6rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  justify-content: center;
+  min-height: 1.4rem;
+}
+
+#counter {
+  font-size: 0.7rem;
+  color: #ccc;
+  letter-spacing: 0.04em;
+}
+
+#hearts {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.heart { transition: opacity 0.3s, transform 0.3s; }
+.heart.lost { opacity: 0; transform: scale(0.4); }
+
+/* ─── Buttons ────────────────────────────────────────────────────────────────── */
+#btn-row {
+  margin-top: 1.8rem;
+  display: flex;
+  gap: 0.8rem;
+}
+
+button {
+  padding: 0.45rem 1.5rem;
+  background: none;
+  border: 1.5px solid #d8d7d0;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #aaa;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+button:hover { border-color: #555; color: #333; }
+
+#btn-next {
+  display: none;
+  border-color: #3a9e60;
+  color: #3a9e60;
+}
+#btn-next:hover { border-color: #2a7a4a; color: #2a7a4a; }
+
+#btn-retry {
+  display: none;
+  border-color: #c0321f;
+  color: #c0321f;
+}
+#btn-retry:hover { border-color: #8b1a0f; color: #8b1a0f; }
+
+/* ─── GitHub link (top-left) ─────────────────────────────────────────────────── */
+#github-link {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  color: #555;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  opacity: 1;
+  transition: opacity 0.2s;
+  z-index: 10;
+}
+#github-link:hover { opacity: 0.55; }
+#github-link svg { fill: currentColor; flex-shrink: 0; }
+
+/* ─── Auth bar (top-right) ───────────────────────────────────────────────────── */
+#auth-bar {
+  position: fixed;
+  top: 10px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  z-index: 10;
+}
+#auth-user {
+  color: #aaa;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#auth-bar button {
+  margin: 0;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.65rem;
+}
+#sync-indicator {
+  font-size: 0.62rem;
+  color: #3a9e60;
+  display: none;
+}
+
+/* ─── Mobile header ──────────────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  #github-link { font-size: 0; gap: 0; }
+  #github-link svg { width: 20px; height: 20px; }
+  #auth-user { display: none !important; }
+  #auth-bar { gap: 6px; top: 8px; right: 8px; }
+  #auth-bar button { padding: 0.28rem 0.65rem; font-size: 0.62rem; }
+  #level-label { margin-bottom: 1.2rem; }
+}
+
+/* ─── Auth modal ─────────────────────────────────────────────────────────────── */
+#auth-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(245, 244, 239, 0.88);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+}
+#auth-overlay.open { display: flex; }
+
+#auth-modal {
+  position: relative;
+  background: #faf9f6;
+  border: 1.5px solid #e2e1da;
+  border-radius: 16px;
+  padding: 2rem 2.2rem 1.8rem;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+#auth-modal h2 {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #888;
+  margin-bottom: 1.4rem;
+  text-align: center;
+}
+
+#auth-tabs {
+  display: flex;
+  margin-bottom: 1.4rem;
+  border-bottom: 1.5px solid #e2e1da;
+}
+.auth-tab {
+  flex: 1;
+  padding: 0.45rem 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #bbb;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  margin-bottom: -1.5px;
+}
+.auth-tab:hover { color: #555; }
+.auth-tab.active { color: #333; border-bottom-color: #555; }
+
+#auth-modal input {
+  width: 100%;
+  padding: 0.55rem 0.8rem;
+  margin-bottom: 0.75rem;
+  background: #fff;
+  border: 1.5px solid #dddbd4;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  color: #333;
+  outline: none;
+  transition: border-color 0.2s;
+  font-family: inherit;
+}
+#auth-modal input:focus { border-color: #999; }
+
+#auth-submit {
+  width: 100%;
+  margin-top: 0.3rem;
+  padding: 0.55rem;
+  background: #333;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #f5f4ef;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+#auth-submit:hover { background: #111; }
+
+#auth-error {
+  font-size: 0.65rem;
+  color: #c0321f;
+  text-align: center;
+  min-height: 1rem;
+  margin-top: 0.6rem;
+  letter-spacing: 0.04em;
+}
+
+#auth-close {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  color: #bbb;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  line-height: 1;
+}
+#auth-close:hover { color: #555; border: none; }
